@@ -27,10 +27,12 @@ Protege el historial de reproducción de accidentes como marcar una **serie o bi
 
 ## 🎃 Guest Mode — Modo huésped
 
-Cuenta desechable para visitas: el invitado ve lo que quiera **sin ensuciar el historial de nadie**.
+Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece en el selector de usuarios) y **no queda rastro de nada**.
 
-- Crea/reinicia la cuenta **"Invitado"** (borrada y recreada = perfil siempre limpio)
-- Tarea programada "Modo huésped: reiniciar cuenta de invitado": **2 veces al día** automática + ejecutable a mano desde Panel → Programado
+- **Historial congelado en vivo**: cada guardado del invitado (visto, progreso, favorito, valoración) se deshace al momento dentro del servidor — su "Continuar viendo" queda siempre vacío
+- **Inicio idéntico al tuyo**: al crear/reiniciar la cuenta se copian tus secciones de home, mismo orden (incluye el truco `usersettings`→MD5 que usa el cliente web, así que vale en cualquier dispositivo)
+- Cuenta **"Invitado"** borrada y recreada = perfil siempre limpio
+- Tarea "Modo huésped: reiniciar cuenta de invitado": **2 veces al día** automática + ejecutable a mano desde Panel → Programado
 - Los demás usuarios nunca se tocan
 
 **Config** (`/var/lib/jellyfin/plugins/configurations/Jellyfin.Plugin.GuestMode.xml`):
@@ -39,6 +41,8 @@ Cuenta desechable para visitas: el invitado ve lo que quiera **sin ensuciar el h
 |---|---|---|
 | `GuestModeEnabled` | `false` | con `true` el reinicio automático funciona |
 | `GuestUserName` | `Invitado` | nombre de la cuenta huésped |
+| `FreezeHistory` | `true` | congela en vivo todo lo que el invitado marque |
+| `HomeCopyFrom` | `admin` | usuario cuyo Inicio se copia al invitado |
 
 ## 🔨 Instalación manual
 

@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Jellyfin.Plugin.GuestMode</AssemblyName>
     <RootNamespace>Jellyfin.Plugin.GuestMode</RootNamespace>
-    <Version>1.0.0.0</Version>
+    <Version>1.1.0.0</Version>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
