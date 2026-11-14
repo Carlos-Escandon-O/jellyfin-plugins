@@ -4,4 +4,5 @@
   <GuestUserName>Invitado</GuestUserName>
   <FreezeHistory>true</FreezeHistory>
   <HomeCopyFrom>admin</HomeCopyFrom>
+  <ActiveWindowMinutes>30</ActiveWindowMinutes>
 </PluginConfiguration>

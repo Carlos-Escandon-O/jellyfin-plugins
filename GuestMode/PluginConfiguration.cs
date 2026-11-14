@@ -16,4 +16,11 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Usuario cuyo Inicio se copia al crear/reiniciar el invitado (mismas secciones y orden).</summary>
     public string HomeCopyFrom { get; set; } = "admin";
+
+    /// <summary>
+    /// Ventana de actividad: si el invitado tiene una sesión con actividad dentro de estos
+    /// minutos, el reinicio se salta para no cortarle la sesión (reproducir siempre bloquea,
+    /// incluso pausado). Con 0 solo se bloquea si está reproduciendo en ese instante.
+    /// </summary>
+    public int ActiveWindowMinutes { get; set; } = 30;
 }

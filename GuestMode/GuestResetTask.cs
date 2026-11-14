@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +18,9 @@ namespace Jellyfin.Plugin.GuestMode;
 /// Tarea programada: borra y recrea la cuenta de invitado (historial limpio) y le copia
 /// el Inicio del usuario indicado. Se ejecuta 2 veces al día si el modo huésped está
 /// activado, y también a mano desde Panel → Programado.
+/// Si el invitado está usando Jellyfin en ese momento (reproduciendo algo —pausa incluida—
+/// o con actividad dentro de la ventana configurada), el reinicio se salta: nunca se corta
+/// su sesión a media película.
 /// </summary>
 public class GuestResetTask : IScheduledTask
 {
@@ -25,15 +29,18 @@ public class GuestResetTask : IScheduledTask
 
     private readonly IUserManager _userManager;
     private readonly IDisplayPreferencesManager _displayPreferencesManager;
+    private readonly ISessionManager _sessionManager;
     private readonly ILogger<GuestResetTask> _logger;
 
     public GuestResetTask(
         IUserManager userManager,
         IDisplayPreferencesManager displayPreferencesManager,
+        ISessionManager sessionManager,
         ILogger<GuestResetTask> logger)
     {
         _userManager = userManager;
         _displayPreferencesManager = displayPreferencesManager;
+        _sessionManager = sessionManager;
         _logger = logger;
     }
 
@@ -41,7 +48,7 @@ public class GuestResetTask : IScheduledTask
 
     public string Key => "GuestReset";
 
-    public string Description => "Borra y recrea la cuenta configurada como invitado, deja su historial completamente limpio y le copia el Inicio del usuario indicado en HomeCopyFrom. Los demás usuarios no se tocan. Solo actúa si GuestModeEnabled=true.";
+    public string Description => "Borra y recrea la cuenta configurada como invitado, deja su historial completamente limpio y le copia el Inicio del usuario indicado en HomeCopyFrom. Si el invitado está activo (reproduciendo o con actividad reciente), el reinicio se aplaza. Los demás usuarios no se tocan. Solo actúa si GuestModeEnabled=true.";
 
     public string Category => "Guest Mode";
 
@@ -64,6 +71,20 @@ public class GuestResetTask : IScheduledTask
         var name = string.IsNullOrWhiteSpace(cfg.GuestUserName) ? "Invitado" : cfg.GuestUserName.Trim();
 
         var existing = _userManager.GetUserByName(name);
+
+        // Bloqueo anti-corte: si el invitado tiene una sesión activa (reproduciendo algo
+        // —pausa incluida— o con actividad dentro de la ventana configurada), no se toca
+        // la cuenta; el reinicio se aplaza a la siguiente pasada.
+        if (existing is not null && IsGuestActive(existing.Id, cfg.ActiveWindowMinutes))
+        {
+            _logger.LogInformation(
+                "[GuestMode] invitado '{Name}' activo ahora mismo (reproduciendo o con actividad en los últimos {Minutes} min); reinicio aplazado.",
+                name,
+                Math.Max(0, cfg.ActiveWindowMinutes));
+            progress.Report(100);
+            return;
+        }
+
         if (existing is not null)
         {
             _logger.LogInformation("[GuestMode] eliminando cuenta '{Name}' ({Id}) con todo su historial…", name, existing.Id);
@@ -83,6 +104,33 @@ public class GuestResetTask : IScheduledTask
         }
 
         progress.Report(100);
+    }
+
+    /// <summary>
+    /// True si el invitado está usando Jellyfin ahora mismo: reproduce algo
+    /// (NowPlayingItem, pausa incluida) o tiene una sesión con actividad dentro
+    /// de la ventana configurada (ActiveWindowMinutes; 0 = solo si reproduce).
+    /// LastActivityDate es UTC, igual que DateTime.UtcNow.
+    /// </summary>
+    private bool IsGuestActive(Guid guestId, int windowMinutes)
+    {
+        var window = TimeSpan.FromMinutes(Math.Max(0, windowMinutes));
+        var now = DateTime.UtcNow;
+
+        foreach (var session in _sessionManager.Sessions.Where(s => s.UserId == guestId))
+        {
+            if (session.NowPlayingItem is not null)
+            {
+                return true;
+            }
+
+            if (session.LastActivityDate != default && now - session.LastActivityDate <= window)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Copia el Inicio (secciones, orden y ajustes de pantalla) del usuario indicado al invitado.</summary>

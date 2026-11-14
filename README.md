@@ -31,7 +31,8 @@ Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece 
 
 - **Historial congelado en vivo**: cada guardado del invitado (visto, progreso, favorito, valoración) se deshace al momento dentro del servidor — su "Continuar viendo" queda siempre vacío
 - **Inicio idéntico al tuyo**: al crear/reiniciar la cuenta se copian tus secciones de home, mismo orden (incluye el truco `usersettings`→MD5 que usa el cliente web, así que vale en cualquier dispositivo)
-- Cuenta **"Invitado"** borrada y recreada = perfil siempre limpio
+- Cuenta **"Invitado"** borrada y recreada = perfil siempre limpio — **nunca mientras la esté usando**: si el invitado está activo, el reinicio se aplaza
+- **No corta películas**: si el invitado está reproduciendo algo (pausa incluida) o tiene actividad reciente en el servidor, el reinicio se salta y espera a la siguiente pasada
 - Tarea "Modo huésped: reiniciar cuenta de invitado": **2 veces al día** automática + ejecutable a mano desde Panel → Programado
 - Los demás usuarios nunca se tocan
 
@@ -43,6 +44,7 @@ Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece 
 | `GuestUserName` | `Invitado` | nombre de la cuenta huésped |
 | `FreezeHistory` | `true` | congela en vivo todo lo que el invitado marque |
 | `HomeCopyFrom` | `admin` | usuario cuyo Inicio se copia al invitado |
+| `ActiveWindowMinutes` | `30` | minutos de inactividad para considerar al invitado "activo"; mientras reproducza —o navegue— dentro de esa ventana, el reinicio no se ejecuta. Con `0` solo se bloquea si está reproduciendo en ese instante |
 
 ### 👤 Uso de la cuenta "Invitado", paso a paso
 
@@ -56,12 +58,13 @@ Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece 
 - Puede marcar episodios como vistos, pausar, continuar, añadir favoritos, valorar… pero **nada se queda**: el plugin deshace cada guardado al momento. Su "Continuar viendo" y "Siguiente" quedan siempre vacíos
 - Dentro de la misma sesión de reproducción puede pausar y retomar sin problema; si **cierra y reabre** el reproductor, el vídeo empieza de cero — ese es el precio de "no se guarda nada"
 
-**El ciclo de reinicio.** Dos veces al día (cada 12 h desde que arranca el servidor) la tarea borra la cuenta y la recrea limpia con tu Inicio. Ojo: si coincide con un invitado a media película, **su sesión se corta** (la cuenta desaparece un instante). Para reiniciar a demanda —p. ej. cuando se marcha la visita—: **Panel → Programado → "Modo huésped: reiniciar cuenta de invitado" → ▶ Ejecutar**.
+**El ciclo de reinicio.** Dos veces al día (cada 12 h desde que arranca el servidor) la tarea borra la cuenta y la recrea limpia con tu Inicio — **salvo que el invitado esté usándola en ese momento**: si está reproduciendo algo (incluso en pausa) o tuvo actividad dentro de los últimos `ActiveWindowMinutes`, la pasada se salta con un apunte en el log ("reinicio aplazado") y se reintentará 12 h después. Si el cliente se cuelga sin cerrar sesión, el servidor limpia la sesión muerta en ~5 min y el reinicio vuelve a poder ejecutarse. Para reiniciar a demanda —p. ej. cuando se marcha la visita—: **Panel → Programado → "Modo huésped: reiniciar cuenta de invitado" → ▶ Ejecutar** (mismo bloqueo: si el invitado acaba de cerrar sesión, espera la ventana; el invitado puede salir con avatar → Cerrar sesión y el reinicio procede al momento).
 
 **Ajustes típicos** (edita el XML y reinicia Jellyfin, o pídemelo):
 - Otra cuenta huésped ("Visita", "Niños de paso"…): cambia `GuestUserName`
 - Copiar el Inicio de otro miembro de la casa: cambia `HomeCopyFrom`
 - Permitir que la visita acumule su propio progreso hasta el siguiente reinicio: `FreezeHistory=false`
+- Cambiar cuánto tiempo cuenta como "activo" (p. ej. `5` para reinicios más agresivos): `ActiveWindowMinutes`
 - Apagar el modo por completo (la cuenta deja de reiniciarse; el congelado sigue activo si la cuenta existe): `GuestModeEnabled=false`
 
 **Ideas para el futuro:** `GuestPassword` (reaplicar una contraseña tras cada recreación, por si prefieres una puerta con llave) — pídela y la añado.
