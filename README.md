@@ -44,6 +44,28 @@ Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece 
 | `FreezeHistory` | `true` | congela en vivo todo lo que el invitado marque |
 | `HomeCopyFrom` | `admin` | usuario cuyo Inicio se copia al invitado |
 
+### 👤 Uso de la cuenta "Invitado", paso a paso
+
+**Entrar al modo huésped.** En la pantalla de acceso de Jellyfin ("¿Quién está viendo?") aparece el perfil **Invitado** como uno más. Como no tiene contraseña, se entra con un solo toque — no aparece ningún campo de texto. También se puede cambiar de usuario en caliente desde el menú del avatar (arriba a la derecha) sin cerrar lo que estás viendo.
+
+**Por qué no tiene contraseña (y por qué es a propósito).** El plugin crea la cuenta con `CreateUserAsync`, que genera usuarios **sin contraseña**, y Jellyfin solo pide contraseña cuando existe. Además, la cuenta se **borra y se vuelve a crear** en cada reinicio (2 veces al día o manual): cualquier contraseña que le pusieras a mano desaparecería con ella. Es una puerta deliberadamente sin llave — y es seguro porque es **la única**: todas las demás cuentas de la casa conservan la suya propia (el invitado no puede entrar a perfiles de otros, ni al Panel, ni tocar nada de administración; solo entra a la biblioteca con su perfil desechable).
+
+**Lo que ve y lo que deja el invitado.**
+- Su Inicio es una **copia idéntica** del de `HomeCopyFrom` (mismas secciones, mismo orden) y vale en cualquier dispositivo, porque la clave que usa el cliente web (`'usersettings'` → MD5) es universal
+- Ve la biblioteca completa (películas, series, libros, LiveTV) con permisos de usuario normal — no admin
+- Puede marcar episodios como vistos, pausar, continuar, añadir favoritos, valorar… pero **nada se queda**: el plugin deshace cada guardado al momento. Su "Continuar viendo" y "Siguiente" quedan siempre vacíos
+- Dentro de la misma sesión de reproducción puede pausar y retomar sin problema; si **cierra y reabre** el reproductor, el vídeo empieza de cero — ese es el precio de "no se guarda nada"
+
+**El ciclo de reinicio.** Dos veces al día (cada 12 h desde que arranca el servidor) la tarea borra la cuenta y la recrea limpia con tu Inicio. Ojo: si coincide con un invitado a media película, **su sesión se corta** (la cuenta desaparece un instante). Para reiniciar a demanda —p. ej. cuando se marcha la visita—: **Panel → Programado → "Modo huésped: reiniciar cuenta de invitado" → ▶ Ejecutar**.
+
+**Ajustes típicos** (edita el XML y reinicia Jellyfin, o pídemelo):
+- Otra cuenta huésped ("Visita", "Niños de paso"…): cambia `GuestUserName`
+- Copiar el Inicio de otro miembro de la casa: cambia `HomeCopyFrom`
+- Permitir que la visita acumule su propio progreso hasta el siguiente reinicio: `FreezeHistory=false`
+- Apagar el modo por completo (la cuenta deja de reiniciarse; el congelado sigue activo si la cuenta existe): `GuestModeEnabled=false`
+
+**Ideas para el futuro:** `GuestPassword` (reaplicar una contraseña tras cada recreación, por si prefieres una puerta con llave) — pídela y la añado.
+
 ## 🔨 Instalación manual
 
 ```bash
