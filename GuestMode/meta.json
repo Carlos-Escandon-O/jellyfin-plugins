@@ -1,0 +1,15 @@
+{
+  "category": "Administration",
+  "changelog": "- v1.0.0.0: versión inicial. Cuenta de invitado desechable que se reinicia 2 veces al día o a mano.",
+  "description": "Modo huésped: cuenta desechable que se reinicia (borrada y recreada) para que el visitante vea lo que quiera sin ensuciar el historial de los demás usuarios.",
+  "guid": "9f2d6b41-8c3e-4a57-b1d0-2e6f8a4c7d93",
+  "name": "Guest Mode",
+  "overview": "Perfil de invitado que se reinicia solo",
+  "owner": "carlos",
+  "targetAbi": "10.11.0.0",
+  "timestamp": "2026-11-14T10:00:00.0000000Z",
+  "version": "1.0.0.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "assemblies": []
+}

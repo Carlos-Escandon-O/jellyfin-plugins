@@ -1,0 +1,15 @@
+{
+  "category": "Administration",
+  "changelog": "- v1.0.0.0: versión inicial. Detecta ráfagas de marcas 'visto' y las revierte con auditoría CSV. Ejecución 2 veces al día + al arrancar.",
+  "description": "Perro guardián del historial: detecta ráfagas de marcas 'visto' (muchos items en pocos segundos, p.ej. al marcar una serie o biblioteca entera por error) y las revierte automáticamente con respaldo y auditoría.",
+  "guid": "4e1c8a9f-2b7d-4c36-9e5a-7f0d3b8c6a21",
+  "name": "History Watchdog",
+  "overview": "Protege el historial de marcas masivas accidentales",
+  "owner": "carlos",
+  "targetAbi": "10.11.0.0",
+  "timestamp": "2026-11-14T10:00:00.0000000Z",
+  "version": "1.0.0.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "assemblies": []
+}
