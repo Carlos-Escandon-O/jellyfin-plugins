@@ -2,7 +2,7 @@
 
 Dos plugins caseros para **Jellyfin 10.11.x** (compilados contra **.NET 9**, probados en un Raspberry Pi 4B con 10.11.9).
 
-## 🛡️ History Watchdog — Perro guardián del historial
+##  History Watchdog — Perro guardián del historial
 
 Protege el historial de reproducción de accidentes como marcar una **serie o biblioteca entera** como vista por error (el clásico ✓ gigante que marca 500 episodios de un jalón).
 
@@ -32,7 +32,7 @@ Protege el historial de reproducción de accidentes como marcar una **serie o bi
 
 **Instalación (v1.1.0.0):** carpeta `History Watchdog_1.1.0.0` con el DLL + meta.json, reiniciar Jellyfin, y entra a Panel → Plugins → History Watchdog.
 
-## 🎃 Guest Mode — Modo huésped
+##  Guest Mode — Modo huésped
 
 Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece en el selector de usuarios) y **no queda rastro de nada**.
 
@@ -53,7 +53,7 @@ Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece 
 | `HomeCopyFrom` | `admin` | usuario cuyo Inicio se copia al invitado |
 | `ActiveWindowMinutes` | `30` | minutos de inactividad para considerar al invitado "activo"; mientras reproducza —o navegue— dentro de esa ventana, el reinicio no se ejecuta. Con `0` solo se bloquea si está reproduciendo en ese instante |
 
-### 👤 Uso de la cuenta "Invitado", paso a paso
+###  Uso de la cuenta "Invitado", paso a paso
 
 **Entrar al modo huésped.** En la pantalla de acceso de Jellyfin ("¿Quién está viendo?") aparece el perfil **Invitado** como uno más. Como no tiene contraseña, se entra con un solo toque — no aparece ningún campo de texto. También se puede cambiar de usuario en caliente desde el menú del avatar (arriba a la derecha) sin cerrar lo que estás viendo.
 
@@ -90,7 +90,7 @@ sudo systemctl restart jellyfin
 
 (Guest Mode igual, con su carpeta `Guest Mode_1.0.0.0`.)
 
-## 📁 Estructura
+##  Estructura
 
 ```
 HistoryWatchdog/   → plugin del perro guardián
