@@ -16,8 +16,10 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.HistoryWatchdog;
 
 /// <summary>
-/// Tarea programada: revisa el buffer de marcas y revierte las ráfagas detectadas.
-/// Programada 2 veces al día + una pasada al arrancar el servidor.
+/// Tarea programada: aplica las decisiones que tomaste en Panel → Plugins → History Watchdog.
+/// NUNCA revierte nada por su cuenta: "sí, estoy seguro" deja todo como está (sin importar
+/// cuántos episodios); "revertir" deshace esa ráfaga concreta.
+/// También disponible a mano como botón ▶ en Panel → Programado.
 /// </summary>
 public class WatchdogTask : IScheduledTask
 {
@@ -45,7 +47,7 @@ public class WatchdogTask : IScheduledTask
 
     public string Key => "HistoryWatchdog";
 
-    public string Description => "Revisa las marcas 'visto' acumuladas desde la última ejecución y revierte las ráfagas detectadas (muchos items marcados en pocos segundos), con auditoría en CSV.";
+    public string Description => "Aplica tus decisiones sobre los avisos de ráfaga (dejar marcado o deshacer). No deshace nada por su cuenta: todo queda como tú decidas.";
 
     public string Category => "History Watchdog";
 
@@ -74,7 +76,7 @@ public class WatchdogTask : IScheduledTask
         var plugin = Plugin.Instance;
         if (plugin is null)
         {
-            _logger.LogWarning("[Watchdog] plugin no inicializado");
+            _logger.LogWarning("[Watchdog] el plugin no está inicializado");
             return;
         }
 
@@ -85,63 +87,103 @@ public class WatchdogTask : IScheduledTask
             return;
         }
 
-        var (events, reverted) = plugin.Snapshot();
-        var pending = events.Where(ev => !reverted.Contains(ev.Id)).ToList();
-        _logger.LogInformation("[Watchdog] buffer: {Count} marcas ({Pending} pendientes de análisis)", events.Count, pending.Count);
+        cfg.PendingBursts ??= new List<PendingBurst>();
+        var toApply = cfg.PendingBursts.Where(b => !string.IsNullOrEmpty(b.Decision)).ToList();
 
-        if (pending.Count == 0)
+        _logger.LogInformation(
+            "[Watchdog] pendientes de decisión: {Total} (a aplicar: {ToApply})",
+            cfg.PendingBursts.Count(b => b.Decision == string.Empty),
+            toApply.Count);
+
+        if (toApply.Count == 0)
         {
+            LogPending();
             plugin.Prune(DateTime.UtcNow.AddHours(-24));
             return;
         }
-
-        var clusters = DetectClusters(pending, cfg.Threshold, cfg.WindowSeconds);
-        var affected = clusters.SelectMany(c => c).ToList();
-
-        if (affected.Count == 0)
-        {
-            _logger.LogInformation(
-                "[Watchdog] sin ráfagas (umbral {Threshold} en {Window}s). Cadena más larga de un usuario: {Max}",
-                cfg.Threshold,
-                cfg.WindowSeconds,
-                LongestChain(pending, cfg.WindowSeconds));
-            plugin.Prune(DateTime.UtcNow.AddHours(-24));
-            return;
-        }
-
-        var nUsers = affected.Select(ev => ev.UserId).Distinct().Count();
-        _logger.LogWarning(
-            "[Watchdog] RÁFAGA detectada: {Count} marcas de {Users} usuario(s) (umbral {Threshold} en {Window}s). Modo: {Mode}",
-            affected.Count,
-            nUsers,
-            cfg.Threshold,
-            cfg.WindowSeconds,
-            cfg.DryRun ? "SIMULACIÓN (DryRun=true, no se revierte)" : "REVERSIÓN REAL");
 
         var csvRows = new List<string> { "fecha_utc,usuario,item_id,serie,titulo,tipo,razon,accion,playcount_antes,playcount_despues" };
 
         using (plugin.BeginRevert())
         {
-            foreach (var ev in affected)
+            foreach (var burst in toApply)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var (accion, antes, despues) = RevertOne(ev, cfg, cancellationToken);
-                    csvRows.Add(BuildRow(ev, accion, antes, despues));
-                    plugin.MarkReverted(new[] { ev.Id });
+                    if (burst.Decision == "keep")
+                    {
+                        _logger.LogInformation(
+                            "[Watchdog] confirmado por {User}: se dejan {Count} marcas ({Summary}). No se toca nada.",
+                            burst.UserName, burst.Items.Count, burst.SeriesSummary);
+                        foreach (var ev in burst.Items)
+                        {
+                            csvRows.Add(BuildRow(ev, burst.UserName, "confirmado (se queda marcado)", -1, -1));
+                        }
+                    }
+                    else if (burst.Decision == "revert")
+                    {
+                        var n = 0;
+                        foreach (var ev in burst.Items)
+                        {
+                            var (accion, antes, despues) = RevertOne(ev, cfg, cancellationToken);
+                            csvRows.Add(BuildRow(ev, burst.UserName, accion, antes, despues));
+                            if (!accion.StartsWith("skip", StringComparison.OrdinalIgnoreCase) && !accion.Contains("(dry)"))
+                            {
+                                n++;
+                            }
+
+                            plugin.MarkReverted(new[] { ev.Id });
+                        }
+
+                        _logger.LogInformation(
+                            "[Watchdog] revertida la ráfaga de {User}: {Count} marcas ({Summary}).",
+                            burst.UserName, n, burst.SeriesSummary);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[Watchdog] decisión desconocida '{Decision}' en la ráfaga {Id}; se deja como está.", burst.Decision, burst.Id);
+                        continue;
+                    }
+
+                    cfg.PendingBursts.Remove(burst);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[Watchdog] fallo al procesar '{Item}'", ev.ItemName);
-                    csvRows.Add(BuildRow(ev, "error: " + ex.GetType().Name, -1, -1));
+                    _logger.LogError(ex, "[Watchdog] fallo procesando la ráfaga {Id}", burst.Id);
+                    csvRows.Add($"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss},{Csv(burst.UserName ?? string.Empty)},,,,,,error:{ex.GetType().Name},-1,-1");
                 }
             }
         }
 
-        var csvPath = WriteCsv(csvRows, cfg.DryRun);
-        _logger.LogInformation("[Watchdog] fin: {Count} items procesados. Auditoría: {Csv}", affected.Count, csvPath);
+        var path = WriteCsv(csvRows, "decision");
+        _logger.LogInformation("[Watchdog] fin del procesamiento. Auditoría: {Csv}", path);
+        plugin.SaveConfiguration();
+        LogPending();
         plugin.Prune(DateTime.UtcNow.AddHours(-24));
+    }
+
+    private void LogPending()
+    {
+        var plugin = Plugin.Instance;
+        if (plugin is null)
+        {
+            return;
+        }
+
+        var cfg = plugin.Configuration;
+        cfg.PendingBursts ??= new List<PendingBurst>();
+        var open = cfg.PendingBursts.Count(b => b.Decision == string.Empty);
+        if (open > 0)
+        {
+            _logger.LogWarning(
+                "[Watchdog] hay {Count} ráfaga(s) sin confirmar. Abre Panel → Plugins → History Watchdog para decidir.",
+                open);
+        }
+        else
+        {
+            _logger.LogInformation("[Watchdog] sin ráfagas pendientes de decisión.");
+        }
     }
 
     private (string Accion, int Antes, int Despues) RevertOne(MarkEvent ev, PluginConfiguration cfg, CancellationToken cancellationToken)
@@ -208,72 +250,8 @@ public class WatchdogTask : IScheduledTask
         return (accion, antes, ud.PlayCount);
     }
 
-    /// <summary>Encuentra cadenas de marcas: >= threshold marcas con huecos <= windowSeconds entre consecutivas.</summary>
-    private static List<List<MarkEvent>> DetectClusters(List<MarkEvent> events, int threshold, int windowSeconds)
+    private string BuildRow(MarkEvent ev, string? userName, string accion, int antes, int despues)
     {
-        var result = new List<List<MarkEvent>>();
-        foreach (var group in events.GroupBy(ev => ev.UserId))
-        {
-            var list = group.OrderBy(ev => ev.Utc).ToList();
-            var i = 0;
-            while (i < list.Count)
-            {
-                var j = i;
-                while (j + 1 < list.Count && (list[j + 1].Utc - list[j].Utc).TotalSeconds <= windowSeconds)
-                {
-                    j++;
-                }
-
-                var count = j - i + 1;
-                if (count >= threshold)
-                {
-                    result.Add(list.GetRange(i, count));
-                }
-
-                i = j + 1;
-            }
-        }
-
-        return result;
-    }
-
-    private static int LongestChain(List<MarkEvent> events, int windowSeconds)
-    {
-        var best = 0;
-        foreach (var group in events.GroupBy(ev => ev.UserId))
-        {
-            var list = group.OrderBy(ev => ev.Utc).ToList();
-            var chain = list.Count > 0 ? 1 : 0;
-            var localBest = chain;
-            for (var i = 1; i < list.Count; i++)
-            {
-                if ((list[i].Utc - list[i - 1].Utc).TotalSeconds <= windowSeconds)
-                {
-                    chain++;
-                }
-                else
-                {
-                    chain = 1;
-                }
-
-                if (chain > localBest)
-                {
-                    localBest = chain;
-                }
-            }
-
-            if (localBest > best)
-            {
-                best = localBest;
-            }
-        }
-
-        return best;
-    }
-
-    private string BuildRow(MarkEvent ev, string accion, int antes, int despues)
-    {
-        var usuario = _userManager.GetUserById(ev.UserId)?.Username ?? ev.UserId.ToString();
         var razon = ev.Reason switch
         {
             3 => "PlaybackFinished",
@@ -285,7 +263,7 @@ public class WatchdogTask : IScheduledTask
         return string.Join(
             ",",
             Csv(ev.Utc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)),
-            Csv(usuario),
+            Csv(userName ?? ev.UserId.ToString()),
             Csv(ev.ItemId.ToString()),
             Csv(ev.SeriesName ?? string.Empty),
             Csv(ev.ItemName ?? string.Empty),
@@ -306,12 +284,11 @@ public class WatchdogTask : IScheduledTask
         return value;
     }
 
-    private string WriteCsv(List<string> rows, bool dry)
+    private string WriteCsv(List<string> rows, string tag)
     {
         var dir = Path.Combine(_appPaths.DataPath, "backups", "history-watchdog");
         Directory.CreateDirectory(dir);
-        var prefix = dry ? "simulacion-" : "revert-";
-        var path = Path.Combine(dir, prefix + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".csv");
+        var path = Path.Combine(dir, $"{tag}-{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}.csv");
         File.WriteAllLines(path, rows, new UTF8Encoding(true));
         return path;
     }

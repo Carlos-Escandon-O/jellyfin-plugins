@@ -4,14 +4,18 @@ Dos plugins caseros para **Jellyfin 10.11.x** (compilados contra **.NET 9**, pro
 
 ## 🛡️ History Watchdog — Perro guardián del historial
 
-Protege el historial de reproducción de accidentes como marcar una **serie o biblioteca entera** como vista por error (el clásico ✓ gigante que marca 1.000 episodios en 3 segundos).
+Protege el historial de reproducción de accidentes como marcar una **serie o biblioteca entera** como vista por error (el clásico ✓ gigante que marca 500 episodios de un jalón).
 
-**Cómo funciona:**
+**Cómo funciona (v1.1):**
 - Escucha en vivo cada guardado de "visto" (`UserDataSaved`) y lo acumula en un log persistente que sobrevive reinicios (`plugins/HistoryWatchdog/state.json`)
-- Dos veces al día (+ una pasada al arrancar) analiza el buffer: si un usuario marca **≥ 25 items con huecos ≤ 180 s** entre ellos → ráfaga
-- Revierte las marcas por la vía oficial (`SaveUserData`): si el item estaba sin ver → reset completo (visto, contador, fecha, progreso); si ya tenía visionados previos → decrementa en 1
-- Deja **auditoría CSV** de cada reversión en `data/backups/history-watchdog/`
-- Modo `DryRun` para ensayar sin tocar nada
+- Si un usuario marca **≥ 5 episodios DISTINTOS en pocos segundos** (ráfaga) → aparece un **aviso** en **Panel → Plugins → History Watchdog** listando la ráfaga y sus episodios. El servidor **nunca deshace nada por su cuenta**
+- En esa página tienes dos botones por ráfaga:
+  - **"✓ Sí, estoy seguro — dejar marcado"** → **queda todo como está, sin importar cuántos episodios sean**
+  - **"↺ Deshacer la ráfaga"** → se desmarcan únicamente los episodios de esa ráfaga (playcount -1, o reset completo si el item estaba sin ver; auditoría CSV)
+- Las ráfagas se actualizan en vivo mientras siguen llegando marcas (una ráfaga de 500 episodios queda como una sola decisión)
+- La tarea programada "Perro guardián del historial" aplica tus decisiones (Panel → Programado → ▶) y también corre sola 2 veces al día
+- Auditoría CSV de cada decisión en `data/backups/history-watchdog/`
+- Modo `DryRun` solo afecta al botón "Deshacer" (auditoría sin tocar); los avisos y "sí, estoy seguro" no se ven afectados
 
 **Tarea programada:** "Perro guardián del historial" (Panel → Programado)
 
@@ -20,10 +24,13 @@ Protege el historial de reproducción de accidentes como marcar una **serie o bi
 | Opción | Default | Descripción |
 |---|---|---|
 | `Enabled` | `true` | vigilancia activa |
-| `Threshold` | `25` | marcas consecutivas para considerar ráfaga |
+| `Threshold` | `5` | marcas distintas en la ventana para considerar ráfaga |
 | `WindowSeconds` | `180` | segundos máximos entre marcas consecutivas |
-| `DryRun` | `false` | detectar + CSV pero no revertir |
-| `ResetProgress` | `true` | al revertir, borrar también el progreso |
+| `DryRun` | `false` | el botón "deshacer" solo audita, no revierte |
+| `ResetProgress` | `true` | al deshacer, borrar también el progreso |
+| `PendingBursts` | `[]` | ráfagas pendientes de decisión (las gestiona la página; no editar a mano) |
+
+**Instalación (v1.1.0.0):** carpeta `History Watchdog_1.1.0.0` con el DLL + meta.json, reiniciar Jellyfin, y entra a Panel → Plugins → History Watchdog.
 
 ## 🎃 Guest Mode — Modo huésped
 
@@ -74,10 +81,10 @@ Cuenta desechable para visitas: el invitado entra con su propio perfil (aparece 
 ```bash
 # Requiere .NET SDK 9
 cd HistoryWatchdog && dotnet publish -c Release -o out
-sudo mkdir -p "/var/lib/jellyfin/plugins/History Watchdog_1.0.0.0"
-sudo cp out/Jellyfin.Plugin.HistoryWatchdog.dll "/var/lib/jellyfin/plugins/History Watchdog_1.0.0.0/"
-sudo cp meta.json "/var/lib/jellyfin/plugins/History Watchdog_1.0.0.0/"
-sudo chown -R jellyfin:jellyfin "/var/lib/jellyfin/plugins/History Watchdog_1.0.0.0"
+sudo mkdir -p "/var/lib/jellyfin/plugins/History Watchdog_1.1.0.0"
+sudo cp out/Jellyfin.Plugin.HistoryWatchdog.dll "/var/lib/jellyfin/plugins/History Watchdog_1.1.0.0/"
+sudo cp meta.json "/var/lib/jellyfin/plugins/History Watchdog_1.1.0.0/"
+sudo chown -R jellyfin:jellyfin "/var/lib/jellyfin/plugins/History Watchdog_1.1.0.0"
 sudo systemctl restart jellyfin
 ```
 

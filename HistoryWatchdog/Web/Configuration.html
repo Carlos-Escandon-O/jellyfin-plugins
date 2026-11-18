@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History Watchdog</title>
+<style>
+  :root {
+    --bg: #1c1f24; --card: #242830; --card2: #2c313c; --line: #3a4152;
+    --text: #e8e9eb; --muted: #9aa3b2; --green: #3fb950; --red: #e5484d; --amber: #e3a008; --blue: #4c8aff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: transparent; color: var(--text); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; padding: 20px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: .85rem; margin-bottom: 18px; }
+  .banner { border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; font-size: .95rem; }
+  .banner.ok { background: rgba(63,185,80,.12); border: 1px solid rgba(63,185,80,.4); }
+  .banner.warn { background: rgba(227,160,8,.14); border: 1px solid rgba(227,160,8,.5); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 1.02rem; margin: 0 0 2px; }
+  .meta { color: var(--muted); font-size: .78rem; margin-bottom: 10px; }
+  .items { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--card2); }
+  .items ul { margin: 8px 0; padding-left: 24px; font-size: .82rem; }
+  .items li { margin: 2px 0; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  button { cursor: pointer; border: 0; border-radius: 8px; padding: 9px 14px; font-size: .9rem; font-weight: 600; }
+  .btn-keep { background: var(--green); color: #06240e; }
+  .btn-undo { background: var(--red); color: #2d0708; }
+  .btn-sec { background: #33415c; color: var(--text); }
+  .btn-blue { background: var(--blue); color: #061f3f; }
+  button:disabled { opacity: .45; cursor: default; }
+  .note { color: var(--muted); font-size: .75rem; margin-top: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  label { display: block; font-size: .8rem; color: var(--muted); margin: 8px 0 4px; }
+  input[type=checkbox] { transform: scale(1.2); margin-right: 8px; }
+  input[type=number] { width: 110px; background: var(--card2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  h3 { font-size: .95rem; margin: 22px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .toast { position: fixed; bottom: 18px; right: 18px; background: var(--card2); border: 1px solid var(--blue); padding: 10px 16px; border-radius: 10px; font-size: .85rem; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<h1>History Watchdog</h1>
+<p class="sub">Perro guardián del historial. Si marcas <strong>más de 5 episodios de golpe</strong>, aparece un aviso aquí y <strong>no se deshace nada hasta que tú lo digas</strong>.</p>
+
+<div id="banner" class="banner">Cargando…</div>
+<div id="bursts"></div>
+
+<h3>Cómo funciona</h3>
+<div class="card" style="font-size:.85rem; color: var(--muted)">
+  1. Marcas varios episodios como vistos de golpe (p.ej. “marcar temporada entera”) → el plugin los detecta y muestra un aviso aquí.<br>
+  2. <strong>“✓ Sí, estoy seguro — dejar marcado”</strong> → <u>se quedan todos marcados, sin importar cuántos sean</u>.<br>
+  3. <strong>“↺ Deshacer la ráfaga”</strong> → se desmarcan únicamente los episodios de esa ráfaga (auditoría CSV en <code>data/backups/history-watchdog/</code>).<br>
+  4. Si no decides, no pasa nada: los episodios quedan como los marcaste.
+</div>
+
+<h3>Ajustes</h3>
+<div class="card grid">
+  <div><label><input type="checkbox" id="cfgEnabled"> Vigilancia activa</label></div>
+  <div><label>Umbral (episodios de golpe para el aviso)</label><input type="number" id="cfgThreshold" min="2" max="100"></div>
+  <div><label>Ventana (segundos entre marcas)</label><input type="number" id="cfgWindow" min="10" max="3600"></div>
+  <div><label><input type="checkbox" id="cfgDryRun"> Deshacer en modo simulación (solo auditoría)</label></div>
+  <div><label><input type="checkbox" id="cfgResetProgress"> Al deshacer, borrar también el progreso</label></div>
+  <div style="display:flex; align-items:flex-end"><button class="btn-sec" id="saveSettings">Guardar ajustes</button></div>
+</div>
+
+<p class="note">También puedes procesar tus decisiones a demanda desde Panel → Programado → “Perro guardián del historial” → ▶ Ejecutar. Los CSV de auditoría quedan en <code>/var/lib/jellyfin/data/backups/history-watchdog/</code>.</p>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const PLUGIN_ID = '4e1c8a9f-2b7d-4c36-9e5a-7f0d3b8c6a21';
+const CFG_URL = `/Plugins/${PLUGIN_ID}/Configuration`;
+const $ = (s, r) => (r || document).querySelector(s);
+const el = (tag, text) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; return e; };
+const api = (url, opts) => fetch(url, Object.assign({ credentials: 'same-origin' }, opts));
+const postJson = (url, body) => api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3500); };
+
+let cfg = null;
+let taskId = null;
+
+async function getConfig() { const r = await api(CFG_URL); if (!r.ok) throw new Error('GET config ' + r.status); return r.json(); }
+async function saveConfig(c) { const r = await postJson(CFG_URL, c); if (![200, 204].includes(r.status)) throw new Error('POST config ' + r.status); }
+async function getTaskId() {
+  const r = await api('/ScheduledTasks'); if (!r.ok) return null;
+  const tasks = await r.json();
+  const t = (tasks || []).find(t => (t.Key || '').toLowerCase() === 'historywatchdog');
+  return t ? t.Id : null;
+}
+async function runTask() {
+  if (!taskId) taskId = await getTaskId();
+  if (!taskId) { toast('No encontré la tarea "HistoryWatchdog" en Programado.'); return; }
+  await postJson(`/ScheduledTasks/Running/${taskId}`);
+}
+async function waitUntilBurstGone(burstId) {
+  for (let i = 0; i < 25; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const fresh = await getConfig();
+    const still = (fresh.PendingBursts || []).some(b => b.Id === burstId);
+    if (!still) { cfg = fresh; render(); return; }
+  }
+  cfg = await getConfig();
+  render();
+  toast('La tarea aún no termina; revisa el resultado en unos segundos.');
+}
+
+function burstTitle(b) {
+  if (b.SeriesSummary) return `Ráfaga: ${b.SeriesSummary}`;
+  return 'Ráfaga de marcas';
+}
+
+function render() {
+  const banner = $('#banner');
+  const target = $('#bursts');
+  target.innerHTML = '';
+  const bursts = (cfg.PendingBursts || []);
+  if (bursts.length === 0) {
+    banner.className = 'banner ok';
+    banner.textContent = 'Todo tranquilo: no hay ráfagas pendientes de decisión.';
+  } else {
+    banner.className = 'banner warn';
+    banner.textContent = `¡${bursts.length} ráfaga(s) pendiente(s) de decisión! Nada se deshace hasta que lo elijas.`;
+  }
+
+  bursts.forEach((b, i) => {
+    const card = el('div', null); card.className = 'card';
+    const h2 = el('h2', burstTitle(b)); card.appendChild(h2);
+    const meta = el('div', null); meta.className = 'meta';
+    const when = new Date(b.LastMarkUtc || b.Utc);
+    meta.textContent = `${b.Items.length} episodio(s) marcado(s) de golpe · usuario: ${b.UserName || b.UserId} · última marca: ${when.toLocaleString()}`;
+    card.appendChild(meta);
+
+    const wrap = el('div', null); wrap.className = 'items';
+    const ul = el('ul');
+    for (const it of b.Items) {
+      const li = el('li', `${it.SeriesName ? it.SeriesName + ' — ' : ''}${it.ItemName || '(sin título)'}`);
+      ul.appendChild(li);
+    }
+    wrap.appendChild(ul);
+    card.appendChild(wrap);
+
+    const row = el('div', null); row.className = 'row';
+    const keep = el('button', '✓ Sí, estoy seguro — dejar marcado'); keep.className = 'btn-keep';
+    const undo = el('button', `↺ Deshacer la ráfaga (${b.Items.length})`); undo.className = 'btn-undo';
+    keep.onclick = () => decide(i, 'keep', keep, undo);
+    undo.onclick = () => decide(i, 'revert', keep, undo);
+    row.appendChild(keep); row.appendChild(undo);
+    card.appendChild(row);
+    target.appendChild(card);
+  });
+
+  if (bursts.length > 1) {
+    const row = el('div', null); row.className = 'row';
+    const keepAll = el('button', '✓ Dejar TODAS marcadas'); keepAll.className = 'btn-keep';
+    const undoAll = el('button', '↺ Deshacer TODAS las ráfagas'); undoAll.className = 'btn-undo';
+    keepAll.onclick = () => decideAll('keep', keepAll, undoAll);
+    undoAll.onclick = () => decideAll('revert', keepAll, undoAll);
+    row.appendChild(keepAll); row.appendChild(undoAll);
+    target.appendChild(row);
+  }
+}
+
+async function decide(i, decision, keepBtn, undoBtn) {
+  keepBtn.disabled = undoBtn.disabled = true;
+  try {
+    cfg.PendingBursts[i].Decision = decision;
+    await saveConfig(cfg);
+    await runTask();
+    toast(decision === 'keep' ? 'Hecho: se quedan marcados.' : 'Hecho: ráfaga deshecha.');
+    await waitUntilBurstGone(cfg.PendingBursts[i].Id);
+  } catch (e) {
+    toast('Error: ' + e.message);
+    keepBtn.disabled = undoBtn.disabled = false;
+  }
+}
+
+async function decideAll(decision, keepBtn, undoBtn) {
+  keepBtn.disabled = undoBtn.disabled = true;
+  try {
+    (cfg.PendingBursts || []).forEach(b => { b.Decision = decision; });
+    await saveConfig(cfg);
+    await runTask();
+    for (let i = 0; i < 25; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const fresh = await getConfig();
+      if ((fresh.PendingBursts || []).length === 0) { cfg = fresh; render(); toast('Hecho.'); return; }
+    }
+    cfg = await getConfig(); render(); toast('La tarea aún no termina.');
+  } catch (e) {
+    toast('Error: ' + e.message);
+    keepBtn.disabled = undoBtn.disabled = false;
+  }
+}
+
+function fillSettings() {
+  $('#cfgEnabled').checked = !!cfg.Enabled;
+  $('#cfgThreshold').value = cfg.Threshold ?? 5;
+  $('#cfgWindow').value = cfg.WindowSeconds ?? 180;
+  $('#cfgDryRun').checked = !!cfg.DryRun;
+  $('#cfgResetProgress').checked = !!cfg.ResetProgress;
+}
+
+$('#saveSettings').onclick = async () => {
+  try {
+    cfg.Enabled = $('#cfgEnabled').checked;
+    cfg.Threshold = parseInt($('#cfgThreshold').value || '5', 10);
+    cfg.WindowSeconds = parseInt($('#cfgWindow').value || '180', 10);
+    cfg.DryRun = $('#cfgDryRun').checked;
+    cfg.ResetProgress = $('#cfgResetProgress').checked;
+    await saveConfig(cfg);
+    toast('Ajustes guardados.');
+  } catch (e) { toast('Error: ' + e.message); }
+};
+
+(async function init() {
+  try {
+    cfg = await getConfig();
+    taskId = await getTaskId();
+    render();
+    fillSettings();
+    if (cfg && cfg.PendingBursts && cfg.PendingBursts.length) toast(`${cfg.PendingBursts.length} ráfaga(s) pendiente(s) de decisión.`);
+  } catch (e) {
+    $('#banner').className = 'banner warn';
+    $('#banner').textContent = 'No pude cargar la configuración: ' + e.message;
+  }
+})();
+</script>
+</body>
+</html>
